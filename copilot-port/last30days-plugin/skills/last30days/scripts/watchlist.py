@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 try:
     import requests
@@ -24,6 +25,19 @@ from lib import schema
 
 # --- Webhook Delivery Functions ---
 
+
+def _parse_https_webhook(url: str):
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.netloc:
+        return None
+    return parsed
+
+
+def _is_slack_webhook(url: str) -> bool:
+    parsed = _parse_https_webhook(url)
+    return bool(parsed and parsed.netloc == "hooks.slack.com")
+
+
 def _deliver_findings(topic_name: str, counts: dict) -> None:
     """Send webhook notification if delivery is configured and there are new findings."""
     channel = store.get_setting("delivery_channel", "")
@@ -34,9 +48,9 @@ def _deliver_findings(topic_name: str, counts: dict) -> None:
     message = _format_delivery_message(topic_name, counts, mode)
     
     try:
-        if "hooks.slack.com" in channel:
+        if _is_slack_webhook(channel):
             _send_slack_webhook(channel, message)
-        elif channel.startswith("https://"):
+        elif _parse_https_webhook(channel):
             _send_generic_webhook(channel, message)
     except Exception as e:
         # Don't fail the research run if delivery fails

@@ -21,11 +21,32 @@ plugin_dir = Path(sys.argv[2])
 skill_dir = plugin_dir / "skills" / "last30days"
 skill_dir.mkdir(parents=True, exist_ok=True)
 
-shutil.copytree(repo_root / "scripts", skill_dir / "scripts")
+scripts_dir = skill_dir / "scripts"
+scripts_dir.mkdir(parents=True, exist_ok=True)
+for filename in ("last30days.py", "briefing.py", "store.py", "watchlist.py"):
+    shutil.copy2(repo_root / "scripts" / filename, scripts_dir / filename)
+shutil.copytree(repo_root / "scripts" / "lib", scripts_dir / "lib")
 if (repo_root / "fixtures").exists():
     shutil.copytree(repo_root / "fixtures", skill_dir / "fixtures")
 for filename in ("pyproject.toml", "README.md", "LICENSE"):
     shutil.copy2(repo_root / filename, skill_dir / filename)
+
+watchlist_path = scripts_dir / "watchlist.py"
+watchlist_text = watchlist_path.read_text()
+if "from urllib.parse import urlparse" not in watchlist_text:
+    watchlist_text = watchlist_text.replace(
+        "import time\nfrom pathlib import Path\n",
+        "import time\nfrom pathlib import Path\nfrom urllib.parse import urlparse\n",
+    )
+watchlist_text = watchlist_text.replace(
+    """# --- Webhook Delivery Functions ---\n\n""",
+    """# --- Webhook Delivery Functions ---\n\n\ndef _parse_https_webhook(url: str):\n    parsed = urlparse(url)\n    if parsed.scheme != \"https\" or not parsed.netloc:\n        return None\n    return parsed\n\n\ndef _is_slack_webhook(url: str) -> bool:\n    parsed = _parse_https_webhook(url)\n    return bool(parsed and parsed.netloc == \"hooks.slack.com\")\n\n\n""",
+)
+watchlist_text = watchlist_text.replace(
+    """        if "hooks.slack.com" in channel:\n            _send_slack_webhook(channel, message)\n        elif channel.startswith("https://"):\n            _send_generic_webhook(channel, message)\n""",
+    """        if _is_slack_webhook(channel):\n            _send_slack_webhook(channel, message)\n        elif _parse_https_webhook(channel):\n            _send_generic_webhook(channel, message)\n""",
+)
+watchlist_path.write_text(watchlist_text)
 
 source_plugin_manifest = json.loads((repo_root / ".claude-plugin" / "plugin.json").read_text())
 plugin_manifest = {
